@@ -7,3 +7,5 @@ server/*/bin/server
 client/*/build/*
 
 client/*/bin/client
+
+makefile
