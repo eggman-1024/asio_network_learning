@@ -82,7 +82,7 @@ void session(boost::asio::ip::tcp::socket &socket){
             boost::asio::read(socket, boost::asio::buffer(buf, CRecvMsgNode::_HEAD_LEN));
             recv_msg_node.AppendData(buf, CRecvMsgNode::_HEAD_LEN);
             // 2. 接收消息体
-            std::cout << "msg_len" << msg_len << std::endl;
+            std::cout << "msg_len: " << msg_len << std::endl;
             msg_len = recv_msg_node.GetMsgLen();
             boost::asio::read(socket, boost::asio::buffer(buf, msg_len));
             recv_msg_node.AppendData(buf, msg_len);

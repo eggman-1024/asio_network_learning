@@ -9,6 +9,11 @@ CSession::~CSession() {
     std::cout << "Session " << _session_id << " destructed" << std::endl;
 }
 
+std::string CSession::GetSessionId(bool full){
+    if(full) return _session_id;
+    return _session_id.substr(24); // 返回去掉前24个字符的session_id
+}
+
 // 开始异步读，由server调用
 void CSession::Start() {
     // 注册读事件
@@ -23,6 +28,7 @@ void CSession::Start() {
 
 // 发送消息
 void CSession::SendMsg(uint16_t msg_id, char* msg, uint16_t msg_len){
+    std::cout << "here in SendMsg 1" << std::endl;
     std::lock_guard<std::mutex> lock(_msg_queue_mutex);
     bool is_sending = !_sending_msg_queue.empty(); // 如果发送信息队列里还有消息说明有消息正在发送
     _sending_msg_queue.push(std::make_shared<CSendMsgNode>(msg_id, msg, msg_len));
@@ -39,17 +45,34 @@ void CSession::SendMsg(uint16_t msg_id, char* msg, uint16_t msg_len){
     );
 }
 
+// 发送消息
+void CSession::SendMsg(uint16_t msg_id, std::string msg_str){
+    std::cout << "here in SendMsg 2" << std::endl;
+    std::lock_guard<std::mutex> lock(_msg_queue_mutex);
+    bool is_sending = !_sending_msg_queue.empty();  // 如果发送信息队列里还有消息说明有消息正在发送
+    _sending_msg_queue.push(std::make_shared<CSendMsgNode>(msg_id, msg_str));  // 将消息打包为发送结点后加入发送消息队列
+    if(is_sending) return;
+    // 如果没有消息正在发送，则注册发送消息事件
+    boost::asio::async_write(
+        *_socket,
+        boost::asio::buffer(_sending_msg_queue.front()->GetData(), _sending_msg_queue.front()->GetDataLen()),
+        [this, self_ptr = shared_from_this()](const boost::system::error_code &error, size_t send_pack_size) {
+            HandleWrite(error, self_ptr);
+        }
+    );
+}
+
 // 读取完消息头后的回调函数
 void CSession::HandleReadHead(const boost::system::error_code& error, size_t recv_pack_size, std::shared_ptr<CSession> self_ptr) {
     if (!error) {
         _cur_recv_msg->AppendData(_recv_pack_data, recv_pack_size);
-        uint16_t msg_id = _cur_recv_msg->GetMsgId();
+        // uint16_t msg_id = _cur_recv_msg->GetMsgId();
         uint16_t msg_len = _cur_recv_msg->GetMsgLen();
-        if(msg_id != 901 && msg_id != 1001){  // 消息id不是901且不是1001，直接断开连接
-            std::cerr << "Invalid message id" << std::endl;
-            _server->ClearSession(_session_id);
-            return;
-        }
+        // if(msg_id != 901 && msg_id != 1001){  // 消息id不是901且不是1001，直接断开连接
+        //     std::cerr << "Invalid message id" << std::endl;
+        //     _server->ClearSession(_session_id);
+        //     return;
+        // }
         // 对读取到的消息进行处理（进行打印）
         if(msg_len > CRecvMsgNode::_MAX_MSG_LENGTH){ // 消息长度超过消息最大长度，直接断开连接
             std::cerr << "Msg too long, disconnecting session " << _session_id << std::endl;
@@ -76,43 +99,12 @@ void CSession::HandleReadHead(const boost::system::error_code& error, size_t rec
     }
 }
 
-// 读取完消息后的回调函数
+// 读取完消息体后的回调函数
 void CSession::HandleReadMsg(const boost::system::error_code& error, size_t recv_pack_size, std::shared_ptr<CSession> self_ptr) {
     if (!error) {
         _cur_recv_msg->AppendData(_recv_pack_data, recv_pack_size);
-        // 处理接收到的数据（打印消息内容，然后将其返回给客户端）
-        uint16_t msg_id = _cur_recv_msg->GetMsgId();
-        uint16_t msg_len = _cur_recv_msg->GetMsgLen();
-        if(msg_id == 1001){
-            Json::Value root;
-            Json::Reader reader;
-            reader.parse(_cur_recv_msg->GetMsgData(), _cur_recv_msg->GetMsgData() + _cur_recv_msg->GetMsgLen(), root);
-            std::cout << _session_id.substr(24) << " (msg_id=";
-            std::cout << root["msg_id"];
-            std::cout << ",msg_len=";
-            std::cout << msg_len;
-            std::cout << ",user_name=";
-            std::cout << root["user_name"];
-            std::cout << "): ";
-            std::cout << root["msg"];
-            std::cout << std::endl;
-        }
-        else if(msg_id == 901){
-            Msg901 msg901;
-            msg901.ParseFromArray(_cur_recv_msg->GetMsgData(), _cur_recv_msg->GetMsgLen());
-            std::cout << _session_id.substr(24) << " (msg_id=";
-            std::cout << msg901.msg_id();
-            std::cout << ",msg_len=";
-            std::cout << msg_len;
-            std::cout << ",machine_id=";
-            std::cout << msg901.machine_id();
-            std::cout << "): ";
-            std::cout << msg901.msg();
-            std::cout << std::endl;
-        }
-
-        // 准备发送给对端的数据（直接将原消息发回）
-        SendMsg(msg_id, _recv_pack_data, recv_pack_size);
+        // 将消息投递给逻辑系统的逻辑队列（内部将会进行深拷贝），处理接收到的数据
+        CLogicSystem::GetInstance()->PostMsgToQue(shared_from_this(), _cur_recv_msg);
 
         // 处理完这条消息继续监听消息头
         // 重置当前接收消息
@@ -141,7 +133,7 @@ void CSession::HandleWrite(const boost::system::error_code& error, std::shared_p
             auto &send_msg_node = _sending_msg_queue.front();
             boost::asio::async_write(
                 *_socket,
-                boost::asio::buffer(send_msg_node->GetData(), send_msg_node->GetMsgLen()),
+                boost::asio::buffer(send_msg_node->GetData(), send_msg_node->GetDataLen()),
                 [this, self_ptr](const boost::system::error_code &error, size_t send_pack_size) {
                     HandleWrite(error, self_ptr);
                 }
