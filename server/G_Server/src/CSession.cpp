@@ -28,7 +28,6 @@ void CSession::Start() {
 
 // 发送消息
 void CSession::SendMsg(uint16_t msg_id, char* msg, uint16_t msg_len){
-    std::cout << "here in SendMsg 1" << std::endl;
     std::lock_guard<std::mutex> lock(_msg_queue_mutex);
     bool is_sending = !_sending_msg_queue.empty(); // 如果发送信息队列里还有消息说明有消息正在发送
     _sending_msg_queue.push(std::make_shared<CSendMsgNode>(msg_id, msg, msg_len));
@@ -47,7 +46,6 @@ void CSession::SendMsg(uint16_t msg_id, char* msg, uint16_t msg_len){
 
 // 发送消息
 void CSession::SendMsg(uint16_t msg_id, std::string msg_str){
-    std::cout << "here in SendMsg 2" << std::endl;
     std::lock_guard<std::mutex> lock(_msg_queue_mutex);
     bool is_sending = !_sending_msg_queue.empty();  // 如果发送信息队列里还有消息说明有消息正在发送
     _sending_msg_queue.push(std::make_shared<CSendMsgNode>(msg_id, msg_str));  // 将消息打包为发送结点后加入发送消息队列
@@ -106,7 +104,7 @@ void CSession::HandleReadMsg(const boost::system::error_code& error, size_t recv
         // 将消息投递给逻辑系统的逻辑队列（内部将会进行深拷贝），处理接收到的数据
         CLogicSystem::GetInstance()->PostMsgToQue(shared_from_this(), _cur_recv_msg);
 
-        // 处理完这条消息继续监听消息头
+        // 继续监听消息头，无需等待消息处理完成(消息被传给逻辑层处理)
         // 重置当前接收消息
         _cur_recv_msg->Reset();
         boost::asio::async_read(

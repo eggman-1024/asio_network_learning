@@ -38,7 +38,7 @@ void CLogicSystem::DealMsg(){
         std::unique_lock<std::mutex> lock(_logic_queue_mutex);
         // 判断队列为空则用条件变量阻塞等待，并释放锁
         while(_logic_queue.empty() && !_is_server_shutdown){
-            _consume.wait(lock);
+            _consume.wait(lock);    // 线程进入休眠状态，等待通知
         }
         // 如果服务器关闭了，将队列里的消息处理完后break退出循环
         if(_is_server_shutdown){
