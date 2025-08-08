@@ -38,7 +38,7 @@ void CLogicSystem::DealMsg(){
         std::unique_lock<std::mutex> lock(_logic_queue_mutex);
         // 判断队列为空则用条件变量阻塞等待，并释放锁
         while(_logic_queue.empty() && !_is_server_shutdown){
-            _consume.wait(lock);
+            _consume.wait(lock);    // 线程进入休眠状态，等待通知
         }
         // 如果服务器关闭了，将队列里的消息处理完后break退出循环
         if(_is_server_shutdown){
@@ -48,7 +48,6 @@ void CLogicSystem::DealMsg(){
             break;
         }
         // 服务器没关闭，且队列中有数据
-        std::cout << "DealMsg()" << std::endl;
         DealOneMsg();
     }
 }
@@ -103,7 +102,6 @@ void MsgHandler_1001(std::shared_ptr<CSession> session, const uint16_t &msg_id, 
     std::cout << std::endl;
 
     // 2.构造回复消息进行发送
-    std::cout << "here in MsgHandler_1001" << std::endl;
     root["user_name"] = "server";
     root["msg"] = "ok! " + root["msg"].asString() + " (from server)";
     std::string msg_str = root.toStyledString(); // 将Json对象序列化
@@ -115,13 +113,10 @@ void MsgHandler_1001(std::shared_ptr<CSession> session, const uint16_t &msg_id, 
 void MsgHandler_901(std::shared_ptr<CSession> session, const uint16_t &msg_id, char *msg, uint32_t msg_len){
     // 1.打印数据
     Msg901 msg901;
-    std::cout << "here in MsgHandler_901 111" << std::endl;
-    std::cout.flush(); // 强制刷新输出缓冲区
     msg901.ParseFromArray(msg, msg_len);
     std::cout << session->GetSessionId() << " (msg_id=";
     std::cout << msg901.msg_id();
     std::cout << ",msg_len=";
-    std::cout << "zrt";
     std::cout << msg_len;
     std::cout << ",machine_id=";
     std::cout << msg901.machine_id();
@@ -130,7 +125,6 @@ void MsgHandler_901(std::shared_ptr<CSession> session, const uint16_t &msg_id, c
     std::cout << std::endl;
 
     // 2.构造新消息回复
-    std::cout << "here in MsgHandler_901 222" << std::endl;
     msg901.set_machine_id(1);
     msg901.set_msg("ok! " + msg901.msg() + " (from server)");
     std::string msg_str;
